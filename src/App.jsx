@@ -940,7 +940,16 @@ function SubmitPanel({
             status: 'approved'
           })
 
-        if (insertError) throw insertError
+        if (insertError) {
+          console.error('カード投稿エラー:', insertError)
+            
+          throw new Error([
+            insertError.message,
+            insertError.details,
+            insertError.hint,
+            insertError.code
+          ].filter(Boolean).join(' / '))
+        }
       } else {
         if (!cardId) {
           throw new Error('対象のカードを選択してください')
