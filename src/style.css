@@ -11,3 +11,52 @@
 @media(max-width:900px){.card-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}@media(max-width:650px){.topbar{padding:0 15px;height:60px}.page{padding:0 14px}.hero{padding:25px 22px;margin-top:20px}.hero-stamp{width:82px;height:82px;font-size:7px}.hero-stamp svg{width:28px}.hero-copy{font-size:11px}.tabs button{padding:12px 10px;font-size:11px}.card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.filter-row{flex-direction:column}.image-search-row{align-items:flex-start;flex-direction:column}.detail-layout{grid-template-columns:1fr;gap:17px;padding:15px}.detail-image{max-height:380px}.detail-copy h2{font-size:21px}.history-grid{grid-template-columns:1fr}.form-card{padding:18px}.review-item{align-items:flex-start;flex-direction:column}.review-actions{width:100%}.review-actions button{flex:1;justify-content:center}.price-row{gap:6px}.price-row strong{min-width:72px}.price-row small{font-size:9px}.form-grid{grid-template-columns:1fr}footer{font-size:8px}.user-label{display:none}}
 
 .setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-top:1px solid var(--line)}.setting-row span{display:grid;gap:4px}.setting-row small{color:var(--muted);font-size:12px}.setting-row input{width:20px;height:20px;accent-color:var(--accent);flex:none}.review-card{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;margin:10px 0}.review-actions{display:flex;gap:8px}
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mypage-entry img {
+  width: 54px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 7px;
+  background: var(--line);
+}
+.mypage-entry > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+.mypage-entry small,
+.mypage-price-entry small {
+  color: var(--muted);
+}
+.mypage-price-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.mypage-price-entry > div {
+  display: grid;
+  gap: 4px;
+}
+.mypage-price-entry > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.mypage-logout {
+  margin-top: 12px;
+}
