@@ -1,5 +1,15 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap');
-:root{font-family:'DM Sans','Noto Sans JP',sans-serif;color:#252437;background:#f7f7fb;font-synthesis:none;text-rendering:optimizeLegibility}
+:root{
+  font-family:'DM Sans','Noto Sans JP',sans-serif;
+  color:#252437;
+  background:#f7f7fb;
+  font-synthesis:none;
+  text-rendering:optimizeLegibility;
+  --line:#eae9f0;
+  --muted:#9995a7;
+  --accent:#7660a9;
+  --surface:#fff;
+}
 *{box-sizing:border-box}body{margin:0;min-width:320px}button,input,select{font:inherit}button{cursor:pointer}
 .app-shell{min-height:100vh}.topbar{height:68px;background:#fff;border-bottom:1px solid #e9e8ef;display:flex;align-items:center;justify-content:space-between;padding:0 max(22px,calc((100vw - 1120px)/2));position:sticky;top:0;z-index:5}
 .brand{display:flex;gap:11px;align-items:center;text-decoration:none;color:#252437;font-weight:800;letter-spacing:-.4px}.brand-mark{width:35px;height:35px;border-radius:12px;background:#28263e;color:#fff;display:grid;place-items:center;font-size:19px}.brand small{display:block;font-size:9px;letter-spacing:1.6px;color:#9996a9;margin-top:2px}
