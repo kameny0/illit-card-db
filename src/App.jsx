@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Search, ImagePlus, Plus, LogIn, LogOut, X, Check, Ban,
   Camera, RefreshCw, ExternalLink, ShieldCheck, UserRound,
-  Disc3, Users, AlertCircle, Trash2
+  Disc3, Users, AlertCircle, Trash2, Save
 } from 'lucide-react'
 import { supabase, supabaseReady } from './lib/supabase'
 import { prepareAndUploadImage } from './lib/imageUpload'
@@ -12,9 +12,15 @@ const money = value => new Intl.NumberFormat('ja-JP', {
   style: 'currency', currency: 'JPY', maximumFractionDigits: 0
 }).format(value)
 
+const publicName = username =>
+  typeof username === 'string' && username.trim()
+    ? username.trim()
+    : 'users'
+
 export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
+  const [publicProfiles, setPublicProfiles] = useState([])
   const [cards, setCards] = useState([])
   const [groups, setGroups] = useState([])
   const [members, setMembers] = useState([])
@@ -35,6 +41,9 @@ export default function App() {
   const [authMode, setAuthMode] = useState('login')
 
   const isAdmin = profile?.role === 'admin'
+  const myPublicProfile = publicProfiles.find(
+    item => item.id === session?.user?.id
+  ) || null
 
   useEffect(() => {
     if (!supabaseReady) {
@@ -60,6 +69,7 @@ export default function App() {
 
     if (!session?.user) {
       setProfile(null)
+      if (tab === 'mypage') setTab('browse')
       loadPublicData()
       return
     }
@@ -71,7 +81,7 @@ export default function App() {
   async function loadProfile(userId) {
     const { data, error } = await supabase
       .from('profiles')
-      .select('*')
+      .select('id, role, account_status, username')
       .eq('id', userId)
       .maybeSingle()
 
@@ -82,7 +92,7 @@ export default function App() {
   async function loadPublicData() {
     setLoading(true)
 
-    const [g, m, a, c, p] = await Promise.all([
+    const [g, m, a, c, p, pp] = await Promise.all([
       supabase.from('groups').select('*').order('name'),
       supabase.from('members').select('*').order('name'),
       supabase.from('albums').select('*').order('name'),
@@ -96,15 +106,15 @@ export default function App() {
         .eq('status', 'approved')
         .order('created_at', { ascending: false })
         .limit(2000),
+      supabase.from('public_profiles')
+        .select('id, username')
     ])
 
-    if (g.error || m.error || a.error || c.error || p.error) {
-      setNotice(
-        [g.error, m.error, a.error, c.error, p.error]
-          .filter(Boolean)
-          .map(e => e.message)
-          .join(' / ')
-      )
+    const errors = [g.error, m.error, a.error, c.error, p.error, pp.error]
+      .filter(Boolean)
+
+    if (errors.length) {
+      setNotice(errors.map(error => error.message).join(' / '))
     }
 
     setGroups(g.data || [])
@@ -112,7 +122,14 @@ export default function App() {
     setAlbums(a.data || [])
     setCards(c.data || [])
     setPrices(p.data || [])
+    setPublicProfiles(pp.data || [])
     setLoading(false)
+  }
+
+  function getPublicName(userId) {
+    if (!userId) return '匿名'
+    const found = publicProfiles.find(item => item.id === userId)
+    return publicName(found?.username)
   }
 
   const visibleCards = useMemo(() => {
@@ -163,9 +180,10 @@ export default function App() {
     event.preventDefault()
 
     const form = new FormData(event.currentTarget)
-    const email = form.get('email')
-    const password = form.get('password')
-    const username = form.get('username') || email.split('@')[0]
+    const email = String(form.get('email') || '').trim()
+    const password = String(form.get('password') || '')
+    const enteredUsername = String(form.get('username') || '').trim()
+    const username = enteredUsername || 'users'
 
     const result = authMode === 'signup'
       ? await supabase.auth.signUp({
@@ -193,6 +211,41 @@ export default function App() {
     await supabase.auth.signOut()
     setNotice('ログアウトしました')
     setTab('browse')
+    setSelectedCard(null)
+  }
+
+  async function updatePublicUsername(nextUsername) {
+    if (!session?.user) return false
+
+    const username = String(nextUsername || '').trim() || 'users'
+
+    if (username.length > 24) {
+      setNotice('ニックネームは24文字以内にしてください。')
+      return false
+    }
+
+    const { error } = await supabase
+      .from('public_profiles')
+      .update({ username })
+      .eq('id', session.user.id)
+
+    if (error) {
+      setNotice(`ニックネームを変更できませんでした：${error.message}`)
+      return false
+    }
+
+    setPublicProfiles(current => {
+      const exists = current.some(item => item.id === session.user.id)
+      if (exists) {
+        return current.map(item =>
+          item.id === session.user.id ? { ...item, username } : item
+        )
+      }
+      return [...current, { id: session.user.id, username }]
+    })
+
+    setNotice('公開ニックネームを変更しました。')
+    return true
   }
 
   async function searchByImage(file) {
@@ -395,13 +448,17 @@ export default function App() {
     )
   }
 
+  const myCards = cards.filter(card => card.submitted_by === session?.user?.id)
+  const myPrices = prices.filter(price => price.user_id === session?.user?.id)
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <a
           className="brand"
           href="#"
-          onClick={() => {
+          onClick={event => {
+            event.preventDefault()
             setTab('browse')
             setSelectedCard(null)
           }}
@@ -416,10 +473,17 @@ export default function App() {
         <div className="top-actions">
           {session ? (
             <>
-              <span className="user-label">
+              <button
+                className="user-label mypage-header-button"
+                onClick={() => {
+                  setTab('mypage')
+                  setSelectedCard(null)
+                }}
+                title="マイページ"
+              >
                 <UserRound size={15}/>
-                {profile?.username || session.user.email}
-              </span>
+                {publicName(myPublicProfile?.username)}
+              </button>
               <button
                 className="icon-button"
                 onClick={signOut}
@@ -472,6 +536,18 @@ export default function App() {
             <Plus size={16}/>登録する
           </button>
 
+          {session && (
+            <button
+              className={tab === 'mypage' ? 'active' : ''}
+              onClick={() => {
+                setTab('mypage')
+                setSelectedCard(null)
+              }}
+            >
+              <UserRound size={16}/>マイページ
+            </button>
+          )}
+
           {isAdmin && (
             <button
               className={tab === 'admin' ? 'active' : ''}
@@ -506,6 +582,21 @@ export default function App() {
             mode={authMode}
             setMode={setAuthMode}
             onSubmit={signInOrSignUp}
+          />
+        )}
+
+        {tab === 'mypage' && session && (
+          <MyPage
+            publicProfile={myPublicProfile}
+            cards={myCards}
+            prices={myPrices}
+            allCards={cards}
+            onSaveUsername={updatePublicUsername}
+            onOpenCard={async card => {
+              setTab('browse')
+              await openCard(card)
+            }}
+            onSignOut={signOut}
           />
         )}
 
@@ -598,6 +689,7 @@ export default function App() {
                   <CardTile
                     key={card.id}
                     card={card}
+                    authorName={getPublicName(card.submitted_by)}
                     prices={prices.filter(p => p.card_id === card.id)}
                     imageScore={imageMatches?.find(x => x.id === card.id)?.score}
                     onClick={() => openCard(card)}
@@ -619,6 +711,8 @@ export default function App() {
             card={selectedCard}
             onBack={() => setSelectedCard(null)}
             session={session}
+            authorName={getPublicName(selectedCard.submitted_by)}
+            getPublicName={getPublicName}
             onPriceAdded={() => openCard(selectedCard)}
           />
         )}
@@ -675,6 +769,7 @@ export default function App() {
                       {' / '}
                       {card.albums?.name || 'アルバム未指定'}
                     </p>
+                    <p>投稿者：{getPublicName(card.submitted_by)}</p>
                   </div>
                 </div>
                 <div className="review-actions">
@@ -714,6 +809,7 @@ export default function App() {
                         {' / '}
                         {price.source}
                       </p>
+                      <p>投稿者：{getPublicName(price.user_id)}</p>
                     </div>
                   </div>
                   <div className="review-actions">
@@ -738,7 +834,7 @@ export default function App() {
 
             {pendingUsers.map(user => (
               <div className="review-card" key={user.id}>
-                <strong>{user.username}</strong>
+                <strong>{publicName(user.username)}</strong>
                 <div className="review-actions">
                   <button
                     className="approve"
@@ -813,11 +909,11 @@ function AuthPanel({ mode, setMode, onSubmit }) {
 
       <form onSubmit={onSubmit} className="form-stack">
         {mode === 'signup' && (
-          <Field label="表示名">
+          <Field label="公開ニックネーム（任意）">
             <input
               name="username"
-              placeholder="Discordで使っている名前など"
-              required
+              maxLength="24"
+              placeholder="未入力なら users と表示されます"
             />
           </Field>
         )}
@@ -856,8 +952,109 @@ function AuthPanel({ mode, setMode, onSubmit }) {
       </button>
 
       <p className="hint">
-        この初期版はメールアドレスで登録します。Discordサーバー所属の自動確認はまだ行いません。
+        公開されるのはニックネームのみです。メールアドレスは投稿者名として表示しません。
       </p>
+    </section>
+  )
+}
+
+function MyPage({
+  publicProfile, cards, prices, allCards,
+  onSaveUsername, onOpenCard, onSignOut
+}) {
+  const [username, setUsername] = useState(publicProfile?.username || 'users')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setUsername(publicName(publicProfile?.username))
+  }, [publicProfile?.username])
+
+  async function save(event) {
+    event.preventDefault()
+    setSaving(true)
+    await onSaveUsername(username)
+    setSaving(false)
+  }
+
+  return (
+    <section className="mypage">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">YOUR ACCOUNT</p>
+          <h2>マイページ</h2>
+        </div>
+        <span className="count">MY PAGE</span>
+      </div>
+
+      <div className="form-card mypage-profile">
+        <div className="mypage-profile-heading">
+          <UserRound size={25}/>
+          <div>
+            <strong>{publicName(publicProfile?.username)}</strong>
+            <span>公開プロフィール</span>
+          </div>
+        </div>
+
+        <form className="form-stack" onSubmit={save}>
+          <Field label="公開ニックネーム">
+            <input
+              value={username}
+              onChange={event => setUsername(event.target.value)}
+              maxLength="24"
+              placeholder="users"
+            />
+          </Field>
+          <p className="hint">
+            この名前は、カードや価格情報の投稿者欄に表示されます。メールアドレスは公開されません。
+          </p>
+          <button className="button primary" type="submit" disabled={saving}>
+            <Save size={16}/>{saving ? '保存中...' : 'ニックネームを保存'}
+          </button>
+        </form>
+      </div>
+
+      <div className="mypage-stats">
+        <div><strong>{cards.length}</strong><span>カード投稿</span></div>
+        <div><strong>{prices.length}</strong><span>価格投稿</span></div>
+      </div>
+
+      <div className="mypage-section">
+        <h3>自分が登録したカード <span>{cards.length}件</span></h3>
+        {cards.length ? cards.map(card => (
+          <button
+            className="mypage-entry"
+            key={card.id}
+            onClick={() => onOpenCard(card)}
+          >
+            <img src={cardImageUrl(card.image_path)} alt=""/>
+            <span>
+              <strong>{card.card_name}</strong>
+              <small>{card.members?.name || '未分類'} / {card.albums?.name || 'アルバム未指定'}</small>
+            </span>
+            <ExternalLink size={15}/>
+          </button>
+        )) : <p className="muted">まだカードを投稿していません。</p>}
+      </div>
+
+      <div className="mypage-section">
+        <h3>自分が登録した価格情報 <span>{prices.length}件</span></h3>
+        {prices.length ? prices.map(price => {
+          const card = allCards.find(item => item.id === price.card_id)
+          return (
+            <div className="mypage-price-entry" key={price.id}>
+              <div>
+                <strong>{money(price.price)}</strong>
+                <small>{card?.card_name || 'カード情報なし'}</small>
+              </div>
+              <span>{price.price_type === 'sold' ? '売却済み' : '出品中'}</span>
+            </div>
+          )
+        }) : <p className="muted">まだ価格情報を投稿していません。</p>}
+      </div>
+
+      <button className="button outline mypage-logout" onClick={onSignOut}>
+        <LogOut size={16}/>ログアウト
+      </button>
     </section>
   )
 }
@@ -929,9 +1126,7 @@ function SubmitPanel({
           .insert({
             group_id: Number(form.group_id),
             member_id: Number(form.member_id),
-            album_id: form.album_id
-              ? Number(form.album_id)
-              : null,
+            album_id: form.album_id ? Number(form.album_id) : null,
             card_name: form.card_name.trim(),
             benefit: form.benefit.trim() || null,
             image_path: uploaded.imagePath,
@@ -942,7 +1137,6 @@ function SubmitPanel({
 
         if (insertError) {
           console.error('カード投稿エラー:', insertError)
-            
           throw new Error([
             insertError.message,
             insertError.details,
@@ -991,6 +1185,7 @@ function SubmitPanel({
       <h2>情報を登録する</h2>
       <p className="hint">
         ログインせずに投稿できます。投稿した情報はすぐに公開されます。
+        ログイン中の投稿には公開ニックネームが表示されます。
       </p>
 
       <div className="segmented">
@@ -1193,7 +1388,7 @@ function SubmitPanel({
   )
 }
 
-function CardTile({ card, prices, imageScore, onClick }) {
+function CardTile({ card, prices, imageScore, onClick, authorName }) {
   const sold = prices
     .filter(p => p.price_type === 'sold')
     .map(p => p.price)
@@ -1204,10 +1399,8 @@ function CardTile({ card, prices, imageScore, onClick }) {
 
   const median = values => {
     if (!values.length) return null
-
     const sorted = [...values].sort((a, b) => a - b)
     const mid = Math.floor(sorted.length / 2)
-
     return sorted.length % 2
       ? sorted[mid]
       : Math.round((sorted[mid - 1] + sorted[mid]) / 2)
@@ -1236,6 +1429,7 @@ function CardTile({ card, prices, imageScore, onClick }) {
         {card.benefit && (
           <span className="tile-benefit">{card.benefit}</span>
         )}
+        <span className="tile-author">投稿者：{authorName}</span>
         <div className="tile-prices">
           <span>
             売却 {median(sold) == null ? '—' : money(median(sold))}
@@ -1259,7 +1453,9 @@ function cardImageUrl(path) {
   return data.publicUrl
 }
 
-function CardDetail({ card, onBack, onPriceAdded }) {
+function CardDetail({
+  card, onBack, onPriceAdded, session, authorName, getPublicName
+}) {
   const [showPriceForm, setShowPriceForm] = useState(false)
   const [form, setForm] = useState({
     price: '',
@@ -1287,11 +1483,11 @@ function CardDetail({ card, onBack, onPriceAdded }) {
       .from('price_entries')
       .insert({
         card_id: card.id,
-        user_id: null,
+        user_id: session?.user?.id || null,
         price: Number(form.price),
         price_type: form.price_type,
-        source: form.source,
-        source_url: form.source_url || null,
+        source: form.source.trim(),
+        source_url: form.source_url.trim() || null,
         transaction_date: form.transaction_date || null,
         status: 'approved'
       })
@@ -1332,6 +1528,7 @@ function CardDetail({ card, onBack, onPriceAdded }) {
           {card.benefit && (
             <p className="muted">{card.benefit}</p>
           )}
+          <p className="detail-author">カード投稿者：{authorName}</p>
 
           <div className="price-summary">
             <div>
@@ -1436,14 +1633,22 @@ function CardDetail({ card, onBack, onPriceAdded }) {
       )}
 
       <div className="history-grid">
-        <PriceList title="実際に売れた価格" entries={sold}/>
-        <PriceList title="出品中の価格" entries={listings}/>
+        <PriceList
+          title="実際に売れた価格"
+          entries={sold}
+          getPublicName={getPublicName}
+        />
+        <PriceList
+          title="出品中の価格"
+          entries={listings}
+          getPublicName={getPublicName}
+        />
       </div>
     </section>
   )
 }
 
-function PriceList({ title, entries }) {
+function PriceList({ title, entries, getPublicName }) {
   return (
     <div className="history-panel">
       <h3>{title} <span>{entries.length}件</span></h3>
@@ -1456,6 +1661,9 @@ function PriceList({ title, entries }) {
             <small>
               {entry.transaction_date ||
                 new Date(entry.created_at).toLocaleDateString('ja-JP')}
+            </small>
+            <small className="price-author">
+              投稿者：{getPublicName(entry.user_id)}
             </small>
 
             {entry.source_url && (
