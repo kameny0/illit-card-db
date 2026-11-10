@@ -1704,8 +1704,8 @@ function SubmitPanel({
       {kind === 'bulk' ? (
         <form className="form-stack contact-sheet-form" onSubmit={submitContactSheet}>
           <p className="hint">
-            同じサイズで整列したカードのまとめ画像を読み込みます。行数・列数は自動推定し、違っていたら修正できます。
-            画像の切り抜きはこのブラウザ内で行います。
+            同じサイズのカードが並んだまとめ画像を読み込みます。行数・列数は検出の目安として使い、カードごとの位置は個別に探します。
+            隙間が不均一でも切り抜けますが、背景とカードの境界が不明瞭な場合はプレビューで確認してください。画像処理はこのブラウザ内で行います。
           </p>
 
           <Field label="まとめ画像">
