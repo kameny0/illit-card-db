@@ -145,7 +145,7 @@ export async function guessContactSheetGrid(file) {
   }
 }
 
-export async function cropContactSheet(file, rows, columns, insetPercent = 3) {
+export async function cropContactSheet(file, rows, columns, insetValues = 3) {
   const safeRows = Math.max(1, Math.min(16, Math.floor(Number(rows) || 1)));
   const safeColumns = Math.max(1, Math.min(17, Math.floor(Number(columns) || 1)));
   const total = safeRows * safeColumns;
@@ -160,7 +160,13 @@ export async function cropContactSheet(file, rows, columns, insetPercent = 3) {
     const scaleY = bitmap.height / projections.height;
     const xCuts = xCutsSmall.map(value => Math.round(value * scaleX));
     const yCuts = yCutsSmall.map(value => Math.round(value * scaleY));
-    const inset = Math.max(0, Math.min(12, Number(insetPercent) || 0)) / 100;
+    const insetConfig = typeof insetValues === 'number'
+      ? { top: insetValues, right: insetValues, bottom: insetValues, left: insetValues }
+      : insetValues || {};
+    const inset = Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [
+      side,
+      Math.max(0, Math.min(17, Number(insetConfig[side]) || 0)) / 100
+    ]));
     const results = [];
 
     for (let row = 0; row < safeRows; row += 1) {
@@ -171,10 +177,10 @@ export async function cropContactSheet(file, rows, columns, insetPercent = 3) {
         const cellBottom = yCuts[row + 1];
         const cellWidth = cellRight - cellLeft;
         const cellHeight = cellBottom - cellTop;
-        const left = Math.round(cellLeft + cellWidth * inset);
-        const top = Math.round(cellTop + cellHeight * inset);
-        const right = Math.round(cellRight - cellWidth * inset);
-        const bottom = Math.round(cellBottom - cellHeight * inset);
+        const left = Math.round(cellLeft + cellWidth * inset.left);
+        const top = Math.round(cellTop + cellHeight * inset.top);
+        const right = Math.round(cellRight - cellWidth * inset.right);
+        const bottom = Math.round(cellBottom - cellHeight * inset.bottom);
         const cropWidth = Math.max(1, right - left);
         const cropHeight = Math.max(1, bottom - top);
         const canvas = document.createElement('canvas');
