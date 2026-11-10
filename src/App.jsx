@@ -38,7 +38,6 @@ export default function App() {
   const [imageMatches, setImageMatches] = useState(null)
   const [imageSearching, setImageSearching] = useState(false)
   const [notice, setNotice] = useState('')
-  const [authMode, setAuthMode] = useState('login')
 
   const isAdmin = profile?.role === 'admin'
   const myPublicProfile = publicProfiles.find(
@@ -86,6 +85,12 @@ export default function App() {
       .maybeSingle()
 
     if (error) setNotice(error.message)
+    if (!data || data.role !== 'admin') {
+      setProfile(null)
+      setNotice('このサイトにログインできるのは管理者アカウントのみです。')
+      await supabase.auth.signOut()
+      return
+    }
     setProfile(data)
   }
 
@@ -182,28 +187,12 @@ export default function App() {
     const form = new FormData(event.currentTarget)
     const email = String(form.get('email') || '').trim()
     const password = String(form.get('password') || '')
-    const enteredUsername = String(form.get('username') || '').trim()
-    const username = enteredUsername || 'users'
-
-    const result = authMode === 'signup'
-      ? await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { username } }
-        })
-      : await supabase.auth.signInWithPassword({
-          email,
-          password
-        })
+    const result = await supabase.auth.signInWithPassword({ email, password })
 
     if (result.error) {
       setNotice(result.error.message)
     } else {
-      setNotice(
-        authMode === 'signup'
-          ? '登録メールを確認してください。確認後にログインできます。'
-          : 'ログインしました。'
-      )
+      setNotice('ログインしました。管理者権限を確認しています。')
     }
   }
 
@@ -471,7 +460,7 @@ export default function App() {
         </a>
 
         <div className="top-actions">
-          {session ? (
+          {session && isAdmin ? (
             <>
               <button
                 className="user-label mypage-header-button"
@@ -529,14 +518,16 @@ export default function App() {
             <Search size={16}/>カードを探す
           </button>
 
-          <button
-            className={tab === 'submit' ? 'active' : ''}
-            onClick={() => setTab('submit')}
-          >
-            <Plus size={16}/>登録する
-          </button>
+          {isAdmin && (
+            <button
+              className={tab === 'submit' ? 'active' : ''}
+              onClick={() => setTab('submit')}
+            >
+              <Plus size={16}/>登録する
+            </button>
+          )}
 
-          {session && (
+          {isAdmin && (
             <button
               className={tab === 'mypage' ? 'active' : ''}
               onClick={() => {
@@ -579,13 +570,11 @@ export default function App() {
 
         {tab === 'auth' && (
           <AuthPanel
-            mode={authMode}
-            setMode={setAuthMode}
             onSubmit={signInOrSignUp}
           />
         )}
 
-        {tab === 'mypage' && session && (
+        {tab === 'mypage' && isAdmin && (
           <MyPage
             publicProfile={myPublicProfile}
             cards={myCards}
@@ -717,7 +706,7 @@ export default function App() {
           />
         )}
 
-        {tab === 'submit' && (
+        {tab === 'submit' && isAdmin && (
           <SubmitPanel
             session={session}
             groups={groups}
@@ -1140,23 +1129,13 @@ function BiasroomImportPanel({ session, groups, members, albums, cards, onDone }
   )
 }
 
-function AuthPanel({ mode, setMode, onSubmit }) {
+function AuthPanel({ onSubmit }) {
   return (
     <section className="form-card narrow">
       <p className="eyebrow">ACCOUNT</p>
-      <h2>{mode === 'signup' ? 'アカウント作成' : 'ログイン'}</h2>
+      <h2>管理者ログイン</h2>
 
       <form onSubmit={onSubmit} className="form-stack">
-        {mode === 'signup' && (
-          <Field label="公開ニックネーム（任意）">
-            <input
-              name="username"
-              maxLength="24"
-              placeholder="未入力なら users と表示されます"
-            />
-          </Field>
-        )}
-
         <Field label="メールアドレス">
           <input
             name="email"
@@ -1177,21 +1156,12 @@ function AuthPanel({ mode, setMode, onSubmit }) {
         </Field>
 
         <button className="button primary full" type="submit">
-          {mode === 'signup' ? 'アカウントを作成' : 'ログイン'}
+          ログイン
         </button>
       </form>
 
-      <button
-        className="text-button switch-auth"
-        onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}
-      >
-        {mode === 'signup'
-          ? 'すでにアカウントを持っている'
-          : '初めて利用する方はこちら'}
-      </button>
-
       <p className="hint">
-        公開されるのはニックネームのみです。メールアドレスは投稿者名として表示しません。
+        管理者として発行されたアカウントでログインしてください。
       </p>
     </section>
   )
