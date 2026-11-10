@@ -7,6 +7,7 @@ import {
 import { supabase, supabaseReady } from './lib/supabase'
 import { prepareAndUploadImage } from './lib/imageUpload'
 import { createImageHash, hashSimilarity } from './lib/imageHash'
+import { guessContactSheetGrid, cropContactSheet } from './lib/contactSheet'
 
 const money = value => new Intl.NumberFormat('ja-JP', {
   style: 'currency', currency: 'JPY', maximumFractionDigits: 0
@@ -748,10 +749,15 @@ export default function App() {
             members={members}
             albums={albums}
             cards={cards}
-            onDone={async () => {
+            onDone={async result => {
               await loadPublicData()
               setTab('browse')
-              setNotice('登録しました！投稿内容はすでに公開されています。')
+              if (result?.inserted != null) {
+                const skipped = result.skippedDuplicates || 0
+                setNotice(`${result.inserted}枚を登録しました。${skipped ? ` 重複のため${skipped}枚をスキップしました。` : ''}`)
+              } else {
+                setNotice('登録しました！投稿内容はすでに公開されています。')
+              }
             }}
           />
         )}
@@ -1388,6 +1394,18 @@ function SubmitPanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [cardId, setCardId] = useState('')
+  const [sheetFile, setSheetFile] = useState(null)
+  const [sheetCrops, setSheetCrops] = useState([])
+  const [sheetRows, setSheetRows] = useState('1')
+  const [sheetColumns, setSheetColumns] = useState('1')
+  const [sheetInset, setSheetInset] = useState('3')
+  const [sheetBusy, setSheetBusy] = useState(false)
+  const [sheetProgress, setSheetProgress] = useState('')
+  const [sheetError, setSheetError] = useState('')
+
+  useEffect(() => () => {
+    sheetCrops.forEach(item => URL.revokeObjectURL(item.preview))
+  }, [sheetCrops])
 
   const [form, setForm] = useState({
     group_id: '',
@@ -1413,6 +1431,146 @@ function SubmitPanel({
     if (preview) URL.revokeObjectURL(preview)
 
     setPreview(nextFile ? URL.createObjectURL(nextFile) : '')
+  }
+
+  async function rebuildSheetPreview(nextRows = sheetRows, nextColumns = sheetColumns, nextInset = sheetInset) {
+    if (!sheetFile) return
+    const rows = Number(nextRows)
+    const columns = Number(nextColumns)
+    if (!Number.isInteger(rows) || rows < 1 || rows > 16 ||
+        !Number.isInteger(columns) || columns < 1 || columns > 12) {
+      setSheetError('行数は1〜16、列数は1〜12で指定してください。')
+      return
+    }
+    if (rows * columns > 120) {
+      setSheetError('一度に切り抜けるのは120枚までです。')
+      return
+    }
+
+    setSheetBusy(true)
+    setSheetError('')
+    setSheetProgress('切り抜きプレビューを作成中...')
+    try {
+      const files = await cropContactSheet(sheetFile, rows, columns, Number(nextInset))
+      setSheetCrops(files.map(file => ({
+        file,
+        preview: URL.createObjectURL(file)
+      })))
+      setSheetProgress('')
+    } catch (e) {
+      setSheetError(e.message || '画像を切り抜けませんでした。')
+      setSheetProgress('')
+    } finally {
+      setSheetBusy(false)
+    }
+  }
+
+  async function chooseContactSheet(nextFile) {
+    if (!nextFile) return
+    if (!nextFile.type.startsWith('image/')) {
+      setSheetError('画像ファイルを選択してください。')
+      return
+    }
+
+    setSheetFile(nextFile)
+    setSheetCrops([])
+    setSheetError('')
+    setSheetBusy(true)
+    setSheetProgress('画像の配置を解析中...')
+    try {
+      const guess = await guessContactSheetGrid(nextFile)
+      setSheetRows(String(guess.rows))
+      setSheetColumns(String(guess.columns))
+      const files = await cropContactSheet(nextFile, guess.rows, guess.columns, Number(sheetInset))
+      setSheetCrops(files.map(file => ({
+        file,
+        preview: URL.createObjectURL(file)
+      })))
+      setSheetProgress('')
+    } catch (e) {
+      setSheetError(e.message || '画像を解析できませんでした。')
+      setSheetProgress('')
+    } finally {
+      setSheetBusy(false)
+    }
+  }
+
+  async function submitContactSheet(event) {
+    event.preventDefault()
+    if (!sheetCrops.length) {
+      setSheetError('先にまとめ画像を読み込み、切り抜きを確認してください。')
+      return
+    }
+    if (!form.group_id || !form.member_id || !form.card_name.trim()) {
+      setSheetError('グループ・メンバー・カード名を入力してください。')
+      return
+    }
+
+    setSheetBusy(true)
+    setSheetError('')
+    const uploadedPaths = []
+    const rows = []
+    const knownHashes = new Set(cards.map(card => card.image_hash).filter(Boolean))
+    let skippedDuplicates = 0
+    let databaseInserted = false
+
+    const selectedMember = members.find(member => String(member.id) === form.member_id)
+    if (!selectedMember || String(selectedMember.group_id) !== form.group_id) {
+      setSheetBusy(false)
+      setSheetError('選択したグループとメンバーの組み合わせを確認してください。')
+      return
+    }
+
+    try {
+      for (let index = 0; index < sheetCrops.length; index += 1) {
+        const crop = sheetCrops[index]
+        setSheetProgress(`画像を確認中... ${index + 1}/${sheetCrops.length}`)
+        const hash = await createImageHash(crop.file)
+        if (knownHashes.has(hash)) {
+          skippedDuplicates += 1
+          continue
+        }
+        knownHashes.add(hash)
+
+        setSheetProgress(`画像を保存中... ${rows.length + 1}/${sheetCrops.length - skippedDuplicates}`)
+        const uploaded = await prepareAndUploadImage(crop.file, session?.user?.id || null)
+        uploadedPaths.push(uploaded.imagePath)
+        rows.push({
+          group_id: Number(form.group_id),
+          member_id: Number(form.member_id),
+          album_id: form.album_id ? Number(form.album_id) : null,
+          card_name: `${form.card_name.trim()} ${String(index + 1).padStart(2, '0')}`,
+          benefit: form.benefit.trim() || null,
+          image_path: uploaded.imagePath,
+          image_hash: uploaded.imageHash,
+          submitted_by: session?.user?.id || null,
+          status: 'approved'
+        })
+      }
+
+      if (!rows.length) {
+        throw new Error('新しく登録できる画像がありませんでした。すべて重複画像の可能性があります。')
+      }
+
+      setSheetProgress(`カード情報を登録中... 0/${rows.length}`)
+      const { error: insertError } = await supabase.from('cards').insert(rows)
+      if (insertError) throw insertError
+      databaseInserted = true
+
+      setSheetProgress('')
+      await onDone({ inserted: rows.length, skippedDuplicates })
+    } catch (e) {
+      if (!databaseInserted && uploadedPaths.length) {
+        const { error: cleanupError } = await supabase.storage
+          .from('card-images')
+          .remove(uploadedPaths)
+        if (cleanupError) console.error('一括登録の画像後片付けに失敗しました:', cleanupError)
+      }
+      setSheetError(e.message || '一括登録に失敗しました。')
+      setSheetProgress('')
+    } finally {
+      setSheetBusy(false)
+    }
   }
 
   async function submit(event) {
@@ -1532,10 +1690,154 @@ function SubmitPanel({
         >
           価格情報
         </button>
+        <button
+          className={kind === 'bulk' ? 'selected' : ''}
+          onClick={() => setKind('bulk')}
+          type="button"
+        >
+          まとめ画像を一括登録
+        </button>
       </div>
 
       {error && <div className="error">{error}</div>}
 
+      {kind === 'bulk' ? (
+        <form className="form-stack contact-sheet-form" onSubmit={submitContactSheet}>
+          <p className="hint">
+            同じサイズで整列したカードのまとめ画像を読み込みます。行数・列数は自動推定し、違っていたら修正できます。
+            画像の切り抜きはこのブラウザ内で行います。
+          </p>
+
+          <Field label="まとめ画像">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={e => chooseContactSheet(e.target.files?.[0] || null)}
+              required
+            />
+          </Field>
+
+          <div className="contact-sheet-grid-settings">
+            <Field label="行数">
+              <input
+                type="number"
+                min="1"
+                max="16"
+                value={sheetRows}
+                onChange={e => setSheetRows(e.target.value)}
+              />
+            </Field>
+            <Field label="列数">
+              <input
+                type="number"
+                min="1"
+                max="12"
+                value={sheetColumns}
+                onChange={e => setSheetColumns(e.target.value)}
+              />
+            </Field>
+            <Field label="余白を削る（%）">
+              <input
+                type="number"
+                min="0"
+                max="12"
+                step="0.5"
+                value={sheetInset}
+                onChange={e => setSheetInset(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          <button
+            className="button outline"
+            type="button"
+            disabled={!sheetFile || sheetBusy}
+            onClick={() => rebuildSheetPreview()}
+          >
+            切り抜きプレビューを更新
+          </button>
+
+          {sheetProgress && <p className="hint">{sheetProgress}</p>}
+          {sheetError && <p className="error">{sheetError}</p>}
+
+          {sheetCrops.length > 0 && (
+            <>
+              <div className="contact-sheet-summary">
+                <strong>{sheetCrops.length}枚を検出</strong>
+                <span>切り抜き結果を確認してください</span>
+              </div>
+              <div className="contact-sheet-preview-grid">
+                {sheetCrops.map((crop, index) => (
+                  <div className="contact-sheet-preview-card" key={index}>
+                    <img src={crop.preview} alt={`切り抜き ${index + 1}`} />
+                    <span>{String(index + 1).padStart(2, '0')}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <Field label="グループ">
+            <select
+              value={form.group_id}
+              onChange={e => update('group_id', e.target.value)}
+              required
+            >
+              <option value="">選択してください</option>
+              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </Field>
+
+          <Field label="メンバー（このまとめ画像に共通）">
+            <select
+              value={form.member_id}
+              onChange={e => update('member_id', e.target.value)}
+              required
+            >
+              <option value="">選択してください</option>
+              {members.filter(m => !form.group_id || String(m.group_id) === form.group_id)
+                .map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </Field>
+
+          <Field label="アルバム（任意）">
+            <select
+              value={form.album_id}
+              onChange={e => update('album_id', e.target.value)}
+            >
+              <option value="">未指定・その他</option>
+              {albums.filter(a => !form.group_id || String(a.group_id) === form.group_id)
+                .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </Field>
+
+          <Field label="カード名（連番の前につける名前）">
+            <input
+              value={form.card_name}
+              onChange={e => update('card_name', e.target.value)}
+              required
+              placeholder="例：Lucky Draw / POB / Album Photocard"
+            />
+          </Field>
+
+          <Field label="特典・バージョンなど（任意）">
+            <input
+              value={form.benefit}
+              onChange={e => update('benefit', e.target.value)}
+              placeholder="例：店舗名、ラウンド、バージョン"
+            />
+          </Field>
+
+          <p className="hint">
+            登録名は「カード名 01」「カード名 02」…の連番になります。価格情報は登録後、各カードから追加できます。
+            同じ画像ハッシュのカードは重複登録をスキップします。
+          </p>
+
+          <button className="button primary full" type="submit" disabled={sheetBusy || !sheetCrops.length}>
+            {sheetBusy ? (sheetProgress || '処理中...') : `${sheetCrops.length}枚を一括登録`}
+          </button>
+        </form>
+      ) : (
       <form className="form-stack" onSubmit={submit}>
         {kind === 'card' ? (
           <>
@@ -1725,6 +2027,7 @@ function SubmitPanel({
               : '価格情報を公開する'}
         </button>
       </form>
+      )}
     </section>
   )
 }
