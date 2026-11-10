@@ -149,7 +149,7 @@ export async function cropContactSheet(file, rows, columns, insetPercent = 3) {
   const safeRows = Math.max(1, Math.min(16, Math.floor(Number(rows) || 1)));
   const safeColumns = Math.max(1, Math.min(17, Math.floor(Number(columns) || 1)));
   const total = safeRows * safeColumns;
-  if (total > 120) throw new Error('一度に切り抜けるのは120枚までです。');
+  if (total > 300) throw new Error('一度に切り抜けるのは300枚までです。');
 
   const bitmap = await createImageBitmap(file);
   try {
