@@ -294,7 +294,7 @@ export async function cropContactSheet(file, rows, columns, insetValues = 3) {
           0.94
         );
       });
-      results.push(new File([blob], \`contact-card-\${String(index + 1).padStart(3, '0')}.jpg\`, {
+      results.push(new File([blob], `contact-card-${String(index + 1).padStart(3, '0')}.jpg`, {
         type: 'image/jpeg',
         lastModified: Date.now()
       }));
