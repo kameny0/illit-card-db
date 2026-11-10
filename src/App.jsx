@@ -1214,146 +1214,6 @@ function PasswordSetupPanel({ onSubmit }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  async function rebuildSheetPreview(nextRows = sheetRows, nextColumns = sheetColumns, nextInset = sheetInset) {
-    if (!sheetFile) return
-    const rows = Number(nextRows)
-    const columns = Number(nextColumns)
-    if (!Number.isInteger(rows) || rows < 1 || rows > 16 ||
-        !Number.isInteger(columns) || columns < 1 || columns > 12) {
-      setSheetError('行数は1〜16、列数は1〜12で指定してください。')
-      return
-    }
-    if (rows * columns > 120) {
-      setSheetError('一度に切り抜けるのは120枚までです。')
-      return
-    }
-
-    setSheetBusy(true)
-    setSheetError('')
-    setSheetProgress('切り抜きプレビューを作成中...')
-    try {
-      const files = await cropContactSheet(sheetFile, rows, columns, Number(nextInset))
-      setSheetCrops(files.map(file => ({
-        file,
-        preview: URL.createObjectURL(file)
-      })))
-      setSheetProgress('')
-    } catch (e) {
-      setSheetError(e.message || '画像を切り抜けませんでした。')
-      setSheetProgress('')
-    } finally {
-      setSheetBusy(false)
-    }
-  }
-
-  async function chooseContactSheet(nextFile) {
-    if (!nextFile) return
-    if (!nextFile.type.startsWith('image/')) {
-      setSheetError('画像ファイルを選択してください。')
-      return
-    }
-
-    setSheetFile(nextFile)
-    setSheetCrops([])
-    setSheetError('')
-    setSheetBusy(true)
-    setSheetProgress('画像の配置を解析中...')
-    try {
-      const guess = await guessContactSheetGrid(nextFile)
-      setSheetRows(String(guess.rows))
-      setSheetColumns(String(guess.columns))
-      const files = await cropContactSheet(nextFile, guess.rows, guess.columns, Number(sheetInset))
-      setSheetCrops(files.map(file => ({
-        file,
-        preview: URL.createObjectURL(file)
-      })))
-      setSheetProgress('')
-    } catch (e) {
-      setSheetError(e.message || '画像を解析できませんでした。')
-      setSheetProgress('')
-    } finally {
-      setSheetBusy(false)
-    }
-  }
-
-  async function submitContactSheet(event) {
-    event.preventDefault()
-    if (!sheetCrops.length) {
-      setSheetError('先にまとめ画像を読み込み、切り抜きを確認してください。')
-      return
-    }
-    if (!form.group_id || !form.member_id || !form.card_name.trim()) {
-      setSheetError('グループ・メンバー・カード名を入力してください。')
-      return
-    }
-
-    setSheetBusy(true)
-    setSheetError('')
-    const uploadedPaths = []
-    const rows = []
-    const knownHashes = new Set(cards.map(card => card.image_hash).filter(Boolean))
-    let skippedDuplicates = 0
-    let databaseInserted = false
-
-    const selectedMember = members.find(member => String(member.id) === form.member_id)
-    if (!selectedMember || String(selectedMember.group_id) !== form.group_id) {
-      setSheetBusy(false)
-      setSheetError('選択したグループとメンバーの組み合わせを確認してください。')
-      return
-    }
-
-    try {
-      for (let index = 0; index < sheetCrops.length; index += 1) {
-        const crop = sheetCrops[index]
-        setSheetProgress(`画像を確認中... ${index + 1}/${sheetCrops.length}`)
-        const hash = await createImageHash(crop.file)
-        if (knownHashes.has(hash)) {
-          skippedDuplicates += 1
-          continue
-        }
-        knownHashes.add(hash)
-
-        setSheetProgress(`画像を保存中... ${rows.length + 1}/${sheetCrops.length - skippedDuplicates}`)
-        const uploaded = await prepareAndUploadImage(crop.file, session?.user?.id || null)
-        uploadedPaths.push(uploaded.imagePath)
-        rows.push({
-          group_id: Number(form.group_id),
-          member_id: Number(form.member_id),
-          album_id: form.album_id ? Number(form.album_id) : null,
-          card_name: `${form.card_name.trim()} ${String(index + 1).padStart(2, '0')}`,
-          benefit: form.benefit.trim() || null,
-          image_path: uploaded.imagePath,
-          image_hash: uploaded.imageHash,
-          submitted_by: session?.user?.id || null,
-          status: 'approved'
-        })
-      }
-
-      if (!rows.length) {
-        throw new Error('新しく登録できる画像がありませんでした。すべて重複画像の可能性があります。')
-      }
-
-      setSheetProgress(`カード情報を登録中... 0/${rows.length}`)
-      const { error: insertError } = await supabase.from('cards').insert(rows)
-      if (insertError) throw insertError
-      databaseInserted = true
-
-      setSheetProgress('')
-      await onDone({ inserted: rows.length, skippedDuplicates })
-    } catch (e) {
-      if (!databaseInserted && uploadedPaths.length) {
-        const { error: cleanupError } = await supabase.storage
-          .from('card-images')
-          .remove(uploadedPaths)
-        if (cleanupError) console.error('一括登録の画像後片付けに失敗しました:', cleanupError)
-      }
-      setSheetError(e.message || '一括登録に失敗しました。')
-      setSheetProgress('')
-    } finally {
-      setSheetBusy(false)
-    }
-  }
-
   async function submit(event) {
     event.preventDefault()
     setError('')
@@ -1571,6 +1431,146 @@ function SubmitPanel({
     if (preview) URL.revokeObjectURL(preview)
 
     setPreview(nextFile ? URL.createObjectURL(nextFile) : '')
+  }
+
+  async function rebuildSheetPreview(nextRows = sheetRows, nextColumns = sheetColumns, nextInset = sheetInset) {
+    if (!sheetFile) return
+    const rows = Number(nextRows)
+    const columns = Number(nextColumns)
+    if (!Number.isInteger(rows) || rows < 1 || rows > 16 ||
+        !Number.isInteger(columns) || columns < 1 || columns > 12) {
+      setSheetError('行数は1〜16、列数は1〜12で指定してください。')
+      return
+    }
+    if (rows * columns > 120) {
+      setSheetError('一度に切り抜けるのは120枚までです。')
+      return
+    }
+
+    setSheetBusy(true)
+    setSheetError('')
+    setSheetProgress('切り抜きプレビューを作成中...')
+    try {
+      const files = await cropContactSheet(sheetFile, rows, columns, Number(nextInset))
+      setSheetCrops(files.map(file => ({
+        file,
+        preview: URL.createObjectURL(file)
+      })))
+      setSheetProgress('')
+    } catch (e) {
+      setSheetError(e.message || '画像を切り抜けませんでした。')
+      setSheetProgress('')
+    } finally {
+      setSheetBusy(false)
+    }
+  }
+
+  async function chooseContactSheet(nextFile) {
+    if (!nextFile) return
+    if (!nextFile.type.startsWith('image/')) {
+      setSheetError('画像ファイルを選択してください。')
+      return
+    }
+
+    setSheetFile(nextFile)
+    setSheetCrops([])
+    setSheetError('')
+    setSheetBusy(true)
+    setSheetProgress('画像の配置を解析中...')
+    try {
+      const guess = await guessContactSheetGrid(nextFile)
+      setSheetRows(String(guess.rows))
+      setSheetColumns(String(guess.columns))
+      const files = await cropContactSheet(nextFile, guess.rows, guess.columns, Number(sheetInset))
+      setSheetCrops(files.map(file => ({
+        file,
+        preview: URL.createObjectURL(file)
+      })))
+      setSheetProgress('')
+    } catch (e) {
+      setSheetError(e.message || '画像を解析できませんでした。')
+      setSheetProgress('')
+    } finally {
+      setSheetBusy(false)
+    }
+  }
+
+  async function submitContactSheet(event) {
+    event.preventDefault()
+    if (!sheetCrops.length) {
+      setSheetError('先にまとめ画像を読み込み、切り抜きを確認してください。')
+      return
+    }
+    if (!form.group_id || !form.member_id || !form.card_name.trim()) {
+      setSheetError('グループ・メンバー・カード名を入力してください。')
+      return
+    }
+
+    setSheetBusy(true)
+    setSheetError('')
+    const uploadedPaths = []
+    const rows = []
+    const knownHashes = new Set(cards.map(card => card.image_hash).filter(Boolean))
+    let skippedDuplicates = 0
+    let databaseInserted = false
+
+    const selectedMember = members.find(member => String(member.id) === form.member_id)
+    if (!selectedMember || String(selectedMember.group_id) !== form.group_id) {
+      setSheetBusy(false)
+      setSheetError('選択したグループとメンバーの組み合わせを確認してください。')
+      return
+    }
+
+    try {
+      for (let index = 0; index < sheetCrops.length; index += 1) {
+        const crop = sheetCrops[index]
+        setSheetProgress(`画像を確認中... ${index + 1}/${sheetCrops.length}`)
+        const hash = await createImageHash(crop.file)
+        if (knownHashes.has(hash)) {
+          skippedDuplicates += 1
+          continue
+        }
+        knownHashes.add(hash)
+
+        setSheetProgress(`画像を保存中... ${rows.length + 1}/${sheetCrops.length - skippedDuplicates}`)
+        const uploaded = await prepareAndUploadImage(crop.file, session?.user?.id || null)
+        uploadedPaths.push(uploaded.imagePath)
+        rows.push({
+          group_id: Number(form.group_id),
+          member_id: Number(form.member_id),
+          album_id: form.album_id ? Number(form.album_id) : null,
+          card_name: `${form.card_name.trim()} ${String(index + 1).padStart(2, '0')}`,
+          benefit: form.benefit.trim() || null,
+          image_path: uploaded.imagePath,
+          image_hash: uploaded.imageHash,
+          submitted_by: session?.user?.id || null,
+          status: 'approved'
+        })
+      }
+
+      if (!rows.length) {
+        throw new Error('新しく登録できる画像がありませんでした。すべて重複画像の可能性があります。')
+      }
+
+      setSheetProgress(`カード情報を登録中... 0/${rows.length}`)
+      const { error: insertError } = await supabase.from('cards').insert(rows)
+      if (insertError) throw insertError
+      databaseInserted = true
+
+      setSheetProgress('')
+      await onDone({ inserted: rows.length, skippedDuplicates })
+    } catch (e) {
+      if (!databaseInserted && uploadedPaths.length) {
+        const { error: cleanupError } = await supabase.storage
+          .from('card-images')
+          .remove(uploadedPaths)
+        if (cleanupError) console.error('一括登録の画像後片付けに失敗しました:', cleanupError)
+      }
+      setSheetError(e.message || '一括登録に失敗しました。')
+      setSheetProgress('')
+    } finally {
+      setSheetBusy(false)
+    }
   }
 
   async function submit(event) {
