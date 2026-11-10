@@ -1398,7 +1398,7 @@ function SubmitPanel({
   const [sheetCrops, setSheetCrops] = useState([])
   const [sheetRows, setSheetRows] = useState('1')
   const [sheetColumns, setSheetColumns] = useState('1')
-  const [sheetInset, setSheetInset] = useState('3')
+  const [sheetInsets, setSheetInsets] = useState({ top: '3', right: '3', bottom: '3', left: '3' })
   const [sheetBusy, setSheetBusy] = useState(false)
   const [sheetProgress, setSheetProgress] = useState('')
   const [sheetError, setSheetError] = useState('')
@@ -1433,7 +1433,7 @@ function SubmitPanel({
     setPreview(nextFile ? URL.createObjectURL(nextFile) : '')
   }
 
-  async function rebuildSheetPreview(nextRows = sheetRows, nextColumns = sheetColumns, nextInset = sheetInset) {
+  async function rebuildSheetPreview(nextRows = sheetRows, nextColumns = sheetColumns, nextInsets = sheetInsets) {
     if (!sheetFile) return
     const rows = Number(nextRows)
     const columns = Number(nextColumns)
@@ -1451,7 +1451,7 @@ function SubmitPanel({
     setSheetError('')
     setSheetProgress('切り抜きプレビューを作成中...')
     try {
-      const files = await cropContactSheet(sheetFile, rows, columns, Number(nextInset))
+      const files = await cropContactSheet(sheetFile, rows, columns, Object.fromEntries(Object.entries(nextInsets).map(([side, value]) => [side, Number(value)])))
       setSheetCrops(files.map(file => ({
         file,
         preview: URL.createObjectURL(file)
@@ -1481,7 +1481,7 @@ function SubmitPanel({
       const guess = await guessContactSheetGrid(nextFile)
       setSheetRows(String(guess.rows))
       setSheetColumns(String(guess.columns))
-      const files = await cropContactSheet(nextFile, guess.rows, guess.columns, Number(sheetInset))
+      const files = await cropContactSheet(nextFile, guess.rows, guess.columns, Object.fromEntries(Object.entries(sheetInsets).map(([side, value]) => [side, Number(value)])))
       setSheetCrops(files.map(file => ({
         file,
         preview: URL.createObjectURL(file)
@@ -1736,16 +1736,23 @@ function SubmitPanel({
                 onChange={e => setSheetColumns(e.target.value)}
               />
             </Field>
-            <Field label="余白を削る（%）">
-              <input
-                type="number"
-                min="0"
-                max="17"
-                step="0.5"
-                value={sheetInset}
-                onChange={e => setSheetInset(e.target.value)}
-              />
-            </Field>
+            {[
+              ['top', '上側の余白（%）'],
+              ['bottom', '下側の余白（%）'],
+              ['left', '左側の余白（%）'],
+              ['right', '右側の余白（%）']
+            ].map(([side, label]) => (
+              <Field label={label} key={side}>
+                <input
+                  type="number"
+                  min="0"
+                  max="17"
+                  step="0.5"
+                  value={sheetInsets[side]}
+                  onChange={e => setSheetInsets(prev => ({ ...prev, [side]: e.target.value }))}
+                />
+              </Field>
+            ))}
           </div>
 
           <button
