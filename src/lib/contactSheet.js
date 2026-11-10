@@ -106,7 +106,7 @@ export async function guessContactSheetGrid(file) {
 
     for (let rows = 1; rows <= 16; rows += 1) {
       if (height / rows < 55) continue;
-      for (let columns = 1; columns <= 12; columns += 1) {
+      for (let columns = 1; columns <= 17; columns += 1) {
         if (width / columns < 38) continue;
 
         const cardRatio = (width / columns) / (height / rows);
@@ -147,7 +147,7 @@ export async function guessContactSheetGrid(file) {
 
 export async function cropContactSheet(file, rows, columns, insetPercent = 3) {
   const safeRows = Math.max(1, Math.min(16, Math.floor(Number(rows) || 1)));
-  const safeColumns = Math.max(1, Math.min(12, Math.floor(Number(columns) || 1)));
+  const safeColumns = Math.max(1, Math.min(17, Math.floor(Number(columns) || 1)));
   const total = safeRows * safeColumns;
   if (total > 120) throw new Error('一度に切り抜けるのは120枚までです。');
 
