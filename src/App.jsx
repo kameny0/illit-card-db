@@ -1438,11 +1438,11 @@ function SubmitPanel({
     const rows = Number(nextRows)
     const columns = Number(nextColumns)
     if (!Number.isInteger(rows) || rows < 1 || rows > 16 ||
-        !Number.isInteger(columns) || columns < 1 || columns > 12) {
-      setSheetError('行数は1〜16、列数は1〜12で指定してください。')
+        !Number.isInteger(columns) || columns < 1 || columns > 17) {
+      setSheetError('行数は1〜16、列数は1〜17で指定してください。')
       return
     }
-    if (rows * columns > 120) {
+    if (rows * columns > 170) {
       setSheetError('一度に切り抜けるのは120枚までです。')
       return
     }
@@ -1731,7 +1731,7 @@ function SubmitPanel({
               <input
                 type="number"
                 min="1"
-                max="12"
+                max="17"
                 value={sheetColumns}
                 onChange={e => setSheetColumns(e.target.value)}
               />
@@ -1740,7 +1740,7 @@ function SubmitPanel({
               <input
                 type="number"
                 min="0"
-                max="12"
+                max="17"
                 step="0.5"
                 value={sheetInset}
                 onChange={e => setSheetInset(e.target.value)}
