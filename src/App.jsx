@@ -1395,6 +1395,7 @@ function SubmitPanel({
     album_id: '',
     card_name: '',
     benefit: '',
+    biasroom_url: '',
     price: '',
     price_type: 'sold',
     source: 'メルカリ',
@@ -1423,6 +1424,22 @@ function SubmitPanel({
 
     try {
       if (kind === 'card') {
+        const biasroomUrl = form.biasroom_url.trim()
+        if (biasroomUrl) {
+          let parsedUrl
+          try {
+            parsedUrl = new URL(biasroomUrl)
+          } catch {
+            throw new Error('Bias RoomのURLを正しく入力してください。')
+          }
+          if (parsedUrl.protocol !== 'https:' || !(
+            parsedUrl.hostname === 'biasroom.com' ||
+            parsedUrl.hostname.endsWith('.biasroom.com')
+          )) {
+            throw new Error('Bias RoomのHTTPS URLを入力してください。')
+          }
+        }
+
         if (!file) {
           throw new Error('カード画像を選択してください')
         }
@@ -1440,6 +1457,7 @@ function SubmitPanel({
             album_id: form.album_id ? Number(form.album_id) : null,
             card_name: form.card_name.trim(),
             benefit: form.benefit.trim() || null,
+            biasroom_url: biasroomUrl || null,
             image_path: uploaded.imagePath,
             image_hash: uploaded.imageHash,
             submitted_by: session?.user?.id || null,
@@ -1607,6 +1625,18 @@ function SubmitPanel({
                 placeholder="例：Weverse特典、店舗名、イベント名"
               />
             </Field>
+
+            <Field label="Bias RoomのカードURL（任意）">
+              <input
+                type="url"
+                value={form.biasroom_url}
+                onChange={e => update('biasroom_url', e.target.value)}
+                placeholder="https://biasroom.com/..."
+              />
+            </Field>
+            <p className="hint">
+              登録すると、カード詳細からBias Roomのページを開けるようになります。
+            </p>
           </>
         ) : (
           <>
@@ -1857,6 +1887,17 @@ function CardDetail({
               <small>{listings.length}件</small>
             </div>
           </div>
+
+          {card.biasroom_url && (
+            <a
+              className="button outline biasroom-link"
+              href={card.biasroom_url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalLink size={16}/>Bias Roomで詳細を見る
+            </a>
+          )}
 
           <button
             className="button primary"
