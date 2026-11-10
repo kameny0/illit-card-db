@@ -1360,14 +1360,6 @@ function SubmitPanel({
           session?.user?.id || null
         )
 
-        const { data: userData, error: userError } =
-          await supabase.auth.getUser();
-
-        if (userError || !userData.user) {
-          alert('ログイン情報を取得できません。再ログインしてください。');
-          return;
-        }
-        
         const { error: insertError } = await supabase
           .from('cards')
           .insert({
@@ -1378,7 +1370,7 @@ function SubmitPanel({
             benefit: form.benefit.trim() || null,
             image_path: uploaded.imagePath,
             image_hash: uploaded.imageHash,
-            submitted_by: userData.user.id,
+            submitted_by: session?.user?.id || null,
             status: 'approved'
           })
 
