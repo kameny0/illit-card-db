@@ -162,3 +162,15 @@
 .biasroom-preview-wrap{display:flex;align-items:center;gap:14px;margin-top:16px;color:#6d5a91;font-size:12px}
 .biasroom-preview-wrap .upload-preview{max-width:180px;max-height:230px}
 @media(max-width:650px){.biasroom-url-row{grid-template-columns:1fr}.biasroom-url-row .button{width:100%}}
+
+
+/* Contact sheet bulk importer */
+.contact-sheet-form{margin-top:18px}
+.contact-sheet-grid-settings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.contact-sheet-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:#f6f4fa;border-radius:10px;color:#625482;font-size:12px}
+.contact-sheet-summary span{color:#938ba5;font-size:11px}
+.contact-sheet-preview-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:10px;max-height:480px;overflow:auto;padding:2px}
+.contact-sheet-preview-card{position:relative;aspect-ratio:3/4;background:#f0eef4;border:1px solid #e8e5ee;border-radius:9px;overflow:hidden}
+.contact-sheet-preview-card img{width:100%;height:100%;object-fit:contain;display:block}
+.contact-sheet-preview-card span{position:absolute;left:6px;top:6px;background:#29273eeb;color:#fff;border-radius:20px;padding:4px 7px;font-size:9px}
+@media(max-width:650px){.contact-sheet-grid-settings{grid-template-columns:1fr 1fr}.contact-sheet-preview-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}}
