@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Search, ImagePlus, Plus, LogIn, LogOut, X, Check, Ban,
   Camera, RefreshCw, ExternalLink, ShieldCheck, UserRound,
-  Disc3, Users, AlertCircle, Trash2, Save
+  Disc3, Users, AlertCircle, Trash2, Save, Link2
 } from 'lucide-react'
 import { supabase, supabaseReady } from './lib/supabase'
 import { prepareAndUploadImage } from './lib/imageUpload'
@@ -754,6 +754,18 @@ export default function App() {
               公開済みのカード・価格情報を削除できます。削除した情報は元に戻せません。
             </p>
 
+            <BiasroomImportPanel
+              session={session}
+              groups={groups}
+              members={members}
+              albums={albums}
+              cards={cards}
+              onDone={async () => {
+                await loadPublicData()
+                setNotice('Biasroom画像を登録しました。')
+              }}
+            />
+
             <h3 className="subheading">
               公開中のトレカ <span>{cards.length}</span>
             </h3>
@@ -898,6 +910,233 @@ export default function App() {
         </footer>
       </main>
     </div>
+  )
+}
+
+function BiasroomImportPanel({ session, groups, members, albums, cards, onDone }) {
+  const [imageUrl, setImageUrl] = useState('')
+  const [file, setFile] = useState(null)
+  const [preview, setPreview] = useState('')
+  const [memberId, setMemberId] = useState('')
+  const [albumId, setAlbumId] = useState('')
+  const [cardName, setCardName] = useState('')
+  const [benefit, setBenefit] = useState('')
+  const [loadingImage, setLoadingImage] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const illitGroup = groups.find(group => group.name.toLowerCase() === 'illit')
+  const illitMembers = members.filter(member =>
+    illitGroup && String(member.group_id) === String(illitGroup.id)
+  )
+  const selectedMember = illitMembers.find(member => String(member.id) === memberId)
+  const illitAlbums = albums.filter(album =>
+    selectedMember && String(album.group_id) === String(selectedMember.group_id)
+  )
+
+  useEffect(() => () => {
+    if (preview) URL.revokeObjectURL(preview)
+  }, [preview])
+
+  async function loadOriginalImage() {
+    setLoadingImage(true)
+    setError('')
+    setFile(null)
+    if (preview) URL.revokeObjectURL(preview)
+    setPreview('')
+
+    try {
+      const parsed = new URL(imageUrl.trim())
+      const allowedHost = parsed.hostname === 'biasroomcdn.com' ||
+        parsed.hostname.endsWith('.biasroomcdn.com')
+      if (parsed.protocol !== 'https:' || !allowedHost) {
+        throw new Error('biasroomcdn.com のHTTPS画像URLを入力してください。')
+      }
+      if (!session?.access_token) {
+        throw new Error('管理者としてログインし直してください。')
+      }
+
+      const response = await fetch(
+        import.meta.env.VITE_SUPABASE_URL + '/functions/v1/biasroom-image-proxy',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            Authorization: 'Bearer ' + session.access_token
+          },
+          body: JSON.stringify({ url: parsed.href })
+        }
+      )
+
+      if (!response.ok) {
+        let message = '画像を取得できませんでした。'
+        try {
+          const body = await response.json()
+          if (body.error) message = body.error
+        } catch {}
+        throw new Error(message)
+      }
+
+      const blob = await response.blob()
+      if (!blob.type.startsWith('image/')) {
+        throw new Error('取得したデータが画像ではありません。')
+      }
+      const nextFile = new File([blob], 'biasroom-' + Date.now(), {
+        type: blob.type
+      })
+      setFile(nextFile)
+      setPreview(URL.createObjectURL(blob))
+    } catch (e) {
+      setError(e.message || '画像の読み込みに失敗しました。')
+    } finally {
+      setLoadingImage(false)
+    }
+  }
+
+  async function registerCard(event) {
+    event.preventDefault()
+    if (!file || !selectedMember || !cardName.trim()) {
+      setError('画像・メンバー・カード名を入力してください。')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+    let uploaded = null
+
+    try {
+      const hash = await createImageHash(file)
+      const { data: duplicates, error: duplicateError } = await supabase
+        .from('cards')
+        .select('id, card_name')
+        .eq('image_hash', hash)
+        .limit(1)
+
+      if (duplicateError) throw duplicateError
+      if (duplicates?.length) {
+        throw new Error('同じ画像のカードが既に登録されています（' + duplicates[0].card_name + '）。')
+      }
+
+      uploaded = await prepareAndUploadImage(file, session.user.id)
+      const { error: insertError } = await supabase
+        .from('cards')
+        .insert({
+          group_id: Number(selectedMember.group_id),
+          member_id: Number(selectedMember.id),
+          album_id: albumId ? Number(albumId) : null,
+          card_name: cardName.trim(),
+          benefit: benefit.trim() || null,
+          image_path: uploaded.imagePath,
+          image_hash: uploaded.imageHash,
+          submitted_by: session.user.id,
+          status: 'approved'
+        })
+
+      if (insertError) throw insertError
+
+      setImageUrl('')
+      setFile(null)
+      setPreview('')
+      setMemberId('')
+      setAlbumId('')
+      setCardName('')
+      setBenefit('')
+      await onDone()
+    } catch (e) {
+      if (uploaded?.imagePath) {
+        await supabase.storage.from('card-images').remove([uploaded.imagePath])
+      }
+      setError(e.message || 'カード登録に失敗しました。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="form-card biasroom-import">
+      <p className="eyebrow">ADMIN ONLY · ILLIT</p>
+      <h2>Biasroom画像を登録</h2>
+      <p className="hint">
+        Biasroom CDNのOpen originalで開いた画像URLを読み込み、既存のカード一覧に登録します。
+        取得元の利用条件と画像の再公開許可を確認した画像のみ登録してください。
+      </p>
+
+      <div className="biasroom-url-row">
+        <Field label="Biasroom画像URL">
+          <input
+            type="url"
+            value={imageUrl}
+            onChange={event => setImageUrl(event.target.value)}
+            placeholder="https://biasroomcdn.com/..."
+          />
+        </Field>
+        <button
+          className="button outline"
+          type="button"
+          disabled={loadingImage || !imageUrl.trim()}
+          onClick={loadOriginalImage}
+        >
+          <Link2 size={15}/>
+          {loadingImage ? '取得中...' : '画像を読み込む'}
+        </button>
+      </div>
+
+      {preview && (
+        <div className="biasroom-preview-wrap">
+          <img className="upload-preview" src={preview} alt="取得したカード画像"/>
+          <span>画像を取得しました</span>
+        </div>
+      )}
+
+      <form className="form-stack" onSubmit={registerCard}>
+        <Field label="ILLITメンバー">
+          <select value={memberId} onChange={event => {
+            setMemberId(event.target.value)
+            setAlbumId('')
+          }} required>
+            <option value="">メンバーを選択</option>
+            {illitMembers.map(member => (
+              <option key={member.id} value={member.id}>{member.name}</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="アルバム（任意）">
+          <select value={albumId} onChange={event => setAlbumId(event.target.value)}>
+            <option value="">未指定・その他</option>
+            {illitAlbums.map(album => (
+              <option key={album.id} value={album.id}>{album.name}</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="カード名">
+          <input
+            value={cardName}
+            onChange={event => setCardName(event.target.value)}
+            placeholder="例：Lucky Draw / POB / Album Photocard"
+            required
+          />
+        </Field>
+
+        <Field label="特典・タグなど（任意）">
+          <input
+            value={benefit}
+            onChange={event => setBenefit(event.target.value)}
+            placeholder="例：店舗名、ラウンド、バージョン"
+          />
+        </Field>
+
+        {error && <p className="error">{error}</p>}
+
+        <button className="button primary full" type="submit"
+          disabled={saving || !file || !selectedMember || !cardName.trim()}>
+          {saving ? 'Supabaseに登録中...' : 'この画像をカードとして登録'}
+        </button>
+      </form>
+      <p className="hint">既存カードの画像ハッシュと照合し、同一画像の重複登録を防ぎます。</p>
+    </section>
   )
 }
 
@@ -1121,14 +1360,6 @@ function SubmitPanel({
           session?.user?.id || null
         )
 
-        const { data: userData, error: userError } =
-          await supabase.auth.getUser();
-
-        if (userError || !userData.user) {
-          alert('ログイン情報を取得できません。再ログインしてください。');
-          return;
-        }
-        
         const { error: insertError } = await supabase
           .from('cards')
           .insert({
@@ -1139,7 +1370,7 @@ function SubmitPanel({
             benefit: form.benefit.trim() || null,
             image_path: uploaded.imagePath,
             image_hash: uploaded.imageHash,
-            submitted_by: userData.user.id,
+            submitted_by: session?.user?.id || null,
             status: 'approved'
           })
 
