@@ -1442,8 +1442,8 @@ function SubmitPanel({
       setSheetError('行数は1〜16、列数は1〜17で指定してください。')
       return
     }
-    if (rows * columns > 170) {
-      setSheetError('一度に切り抜けるのは120枚までです。')
+    if (rows * columns > 300) {
+      setSheetError('一度に切り抜けるのは300枚までです。')
       return
     }
 
