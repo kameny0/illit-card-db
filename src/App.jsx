@@ -749,10 +749,15 @@ export default function App() {
             members={members}
             albums={albums}
             cards={cards}
-            onDone={async () => {
+            onDone={async result => {
               await loadPublicData()
               setTab('browse')
-              setNotice('登録しました！投稿内容はすでに公開されています。')
+              if (result?.inserted != null) {
+                const skipped = result.skippedDuplicates || 0
+                setNotice(`${result.inserted}枚を登録しました。${skipped ? ` 重複のため${skipped}枚をスキップしました。` : ''}`)
+              } else {
+                setNotice('登録しました！投稿内容はすでに公開されています。')
+              }
             }}
           />
         )}
@@ -1288,6 +1293,14 @@ function PasswordSetupPanel({ onSubmit }) {
     const rows = []
     const knownHashes = new Set(cards.map(card => card.image_hash).filter(Boolean))
     let skippedDuplicates = 0
+    let databaseInserted = false
+
+    const selectedMember = members.find(member => String(member.id) === form.member_id)
+    if (!selectedMember || String(selectedMember.group_id) !== form.group_id) {
+      setSheetBusy(false)
+      setSheetError('選択したグループとメンバーの組み合わせを確認してください。')
+      return
+    }
 
     try {
       for (let index = 0; index < sheetCrops.length; index += 1) {
@@ -1323,15 +1336,12 @@ function PasswordSetupPanel({ onSubmit }) {
       setSheetProgress(`カード情報を登録中... 0/${rows.length}`)
       const { error: insertError } = await supabase.from('cards').insert(rows)
       if (insertError) throw insertError
+      databaseInserted = true
 
       setSheetProgress('')
-      await onDone()
-      if (skippedDuplicates) {
-        // onDone navigates away; this message is shown in the parent after reload.
-        console.info(`${skippedDuplicates} duplicate crops were skipped.`)
-      }
+      await onDone({ inserted: rows.length, skippedDuplicates })
     } catch (e) {
-      if (uploadedPaths.length) {
+      if (!databaseInserted && uploadedPaths.length) {
         const { error: cleanupError } = await supabase.storage
           .from('card-images')
           .remove(uploadedPaths)
