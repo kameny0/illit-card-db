@@ -19,6 +19,11 @@ const publicName = username =>
 
 export default function App() {
   const [session, setSession] = useState(null)
+  const [passwordSetupRequired, setPasswordSetupRequired] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const params = new URLSearchParams(window.location.hash.slice(1))
+    return ['invite', 'recovery'].includes(params.get('type'))
+  })
   const [profile, setProfile] = useState(null)
   const [publicProfiles, setPublicProfiles] = useState([])
   const [cards, setCards] = useState([])
@@ -55,8 +60,12 @@ export default function App() {
     })
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, nextSession) => {
+      (event, nextSession) => {
         setSession(nextSession)
+        if (event === 'PASSWORD_RECOVERY') {
+          setPasswordSetupRequired(true)
+          setTab('auth')
+        }
       }
     )
 
@@ -65,6 +74,11 @@ export default function App() {
 
   useEffect(() => {
     if (!supabaseReady) return
+
+    if (passwordSetupRequired) {
+      setLoading(false)
+      return
+    }
 
     if (!session?.user) {
       setProfile(null)
@@ -75,7 +89,7 @@ export default function App() {
 
     loadProfile(session.user.id)
     loadPublicData()
-  }, [session])
+  }, [session, passwordSetupRequired])
 
   async function loadProfile(userId) {
     const { data, error } = await supabase
@@ -194,6 +208,23 @@ export default function App() {
     } else {
       setNotice('ログインしました。管理者権限を確認しています。')
     }
+  }
+
+  async function setInitialPassword(password) {
+    const { error } = await supabase.auth.updateUser({ password })
+    if (error) {
+      setNotice(`パスワードを設定できませんでした：${error.message}`)
+      return false
+    }
+
+    window.history.replaceState(
+      null,
+      document.title,
+      window.location.pathname + window.location.search
+    )
+    setPasswordSetupRequired(false)
+    setNotice('パスワードを設定しました。管理者権限を確認しています。')
+    return true
   }
 
   async function signOut() {
@@ -568,7 +599,11 @@ export default function App() {
           </div>
         )}
 
-        {tab === 'auth' && (
+        {tab === 'auth' && passwordSetupRequired && (
+          <PasswordSetupPanel onSubmit={setInitialPassword} />
+        )}
+
+        {tab === 'auth' && !passwordSetupRequired && (
           <AuthPanel
             onSubmit={signInOrSignUp}
           />
@@ -1163,6 +1198,73 @@ function AuthPanel({ onSubmit }) {
       <p className="hint">
         管理者として発行されたアカウントでログインしてください。
       </p>
+    </section>
+  )
+}
+
+function PasswordSetupPanel({ onSubmit }) {
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+
+    if (password.length < 8) {
+      setError('パスワードは8文字以上にしてください。')
+      return
+    }
+    if (password !== confirmation) {
+      setError('確認用パスワードが一致しません。')
+      return
+    }
+
+    setBusy(true)
+    const success = await onSubmit(password)
+    if (!success) setBusy(false)
+  }
+
+  return (
+    <section className="form-card narrow">
+      <p className="eyebrow">FIRST ACCESS</p>
+      <h2>パスワードを設定</h2>
+      <p className="hint">
+        招待を受け取った方は、ここで自分専用のパスワードを設定してください。
+      </p>
+
+      <form onSubmit={submit} className="form-stack">
+        <Field label="新しいパスワード">
+          <input
+            type="password"
+            autoComplete="new-password"
+            minLength="8"
+            required
+            value={password}
+            onChange={event => setPassword(event.target.value)}
+            placeholder="8文字以上"
+          />
+        </Field>
+
+        <Field label="パスワード（確認）">
+          <input
+            type="password"
+            autoComplete="new-password"
+            minLength="8"
+            required
+            value={confirmation}
+            onChange={event => setConfirmation(event.target.value)}
+            placeholder="もう一度入力"
+          />
+        </Field>
+
+        {error && <p className="error">{error}</p>}
+
+        <button className="button primary full" type="submit" disabled={busy}>
+          {busy ? '設定中...' : 'パスワードを設定する'}
+        </button>
+      </form>
     </section>
   )
 }
